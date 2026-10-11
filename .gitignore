@@ -149,3 +149,6 @@ scratch/
 # excelizarr
 .pixi/
 *.zarr/
+
+# CDK synth output (benchmarks/infra)
+cdk.out/

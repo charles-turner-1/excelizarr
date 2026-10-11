@@ -19,7 +19,7 @@ classifiers = [
 license = { text = "Apache Software License 2.0" }
 dependencies = [
     "numpy",
-    "openpyxl", # the full-fidelity reader and the only writer: formulas, formats, merges
+    "openpyxl",  # the full-fidelity reader and the only writer: formulas, formats, merges
     "pandas",
     "zarr>=3.1",
 ]
@@ -43,12 +43,12 @@ dev = [
 # feature of the same name, and Read the Docs installs ``.[docs]`` with pip.
 docs = [
     "sphinx>=8",
-    "myst-nb>=1.2",               # MyST pages *and* executed code cells; it bundles myst-parser
+    "myst-nb>=1.2",              # MyST pages *and* executed code cells; it bundles myst-parser
     "pydata-sphinx-theme>=0.16",
     "sphinx-design",
     "sphinx-copybutton",
-    "ipykernel",                  # myst-nb executes pages through a Jupyter kernel
-    "icechunk",                   # the version-control page is executed
+    "ipykernel",                 # myst-nb executes pages through a Jupyter kernel
+    "icechunk",                  # the version-control page is executed
 ]
 
 [project.urls]
@@ -97,7 +97,19 @@ omit = ["*/_version.py"]
 
 [tool.ruff]
 target-version = "py311"
-exclude = [".git", ".mypy_cache", ".ruff_cache", ".venv", ".pixi", "_build", "build", "dist", "versioneer.py", "_version.py", "tests"]
+exclude = [
+    ".git",
+    ".mypy_cache",
+    ".ruff_cache",
+    ".venv",
+    ".pixi",
+    "_build",
+    "build",
+    "dist",
+    "versioneer.py",
+    "_version.py",
+    "tests",
+]
 
 [tool.ruff.lint]
 # E402: module level import not at top of file
@@ -141,16 +153,23 @@ setuptools = ">=64"
 excelizarr = { editable = true, path = "." }
 
 [tool.pixi.environments]
-default = { features = ["dev", "test", "fast", "icechunk"], solve-group = "default" }
+default = { features = [
+    "dev",
+    "test",
+    "fast",
+    "icechunk",
+], solve-group = "default" }
 test-py311 = { features = ["py311", "test", "fast", "icechunk"] }
 test-py312 = { features = ["py312", "test", "fast", "icechunk"] }
 test-py313 = { features = ["py313", "test", "fast", "icechunk"] }
+
 # The bare arm: no fastexcel, no icechunk. Their tests ``importorskip``, and this is the
 # environment that proves excelizarr itself never needs either.
 test-minimal = { features = ["test"] }
 docs = { features = ["docs", "fast"], solve-group = "default" }
 # Only the benchmark script needs these: the HDF comparison is the whole point of it.
-bench = { features = ["bench", "fast"], solve-group = "default" }
+# Also includes infra feature to provision a bucket to test against a real s3 endpoint.
+bench = { features = ["bench", "fast", "infra"], solve-group = "default" }
 
 [tool.pixi.feature.fast.dependencies]
 python-calamine = "*"
@@ -199,11 +218,33 @@ python = "3.12.*"
 [tool.pixi.feature.py313.dependencies]
 python = "3.13.*"
 
+[tool.pixi.feature.infra.dependencies]
+nodejs = "24.*" # an LTS release CDK supports (jsii warns on newer)
+
+[tool.pixi.feature.infra.pypi-dependencies]
+aws-cdk-lib = ">=2.272,<3"
+constructs = ">=10.8,<11"
+
+[tool.pixi.feature.infra.tasks]
+cdk = { description = "Run the pinned AWS CDK CLI for the benchmark deployment (e.g. `pixi run -e bench cdk diff`)", cmd = "npx --yes aws-cdk@2.1144.0", cwd = "benchmarks/infra", env = { AWS_PROFILE = "excelizarr-admin" }, depends-on = ["aws-login"] }
+synth = { description = "Synthesize the CloudFormation template (no AWS access needed)", cmd = "npx --yes aws-cdk@2.1144.0 synth --quiet", cwd = "benchmarks/infra" }
+aws-login = { description = "Log in to AWS as excelizarr-admin, if not logged in", cmd = "bash -c 'if ! aws sts get-caller-identity >/dev/null 2>&1; then aws sso login; fi'", env = { AWS_PROFILE = "excelizarr-admin" } }
+
+
 [tool.numpydoc_validation]
 checks = [
-    "PR01", "PR02", "PR03", "PR04", "PR05", "PR06", "PR07",
-    "RT01", "RT03", "RT04",
-    "GL02", "GL03",
+    "PR01",
+    "PR02",
+    "PR03",
+    "PR04",
+    "PR05",
+    "PR06",
+    "PR07",
+    "RT01",
+    "RT03",
+    "RT04",
+    "GL02",
+    "GL03",
     "YD01",
 ]
 # Single-underscore helpers are private and documented as much as they need, which is
