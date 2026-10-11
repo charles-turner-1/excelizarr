@@ -1,0 +1,31 @@
+# Read the Docs build configuration.
+# https://docs.readthedocs.io/en/stable/config-file/v2.html
+#
+# RTD does not run pixi natively, so it installs the *same* dependency list through pip:
+# the `docs` extra in pyproject.toml is simultaneously the pixi `docs` feature. Only
+# resolution differs between this build and CI's (pip against PyPI here, conda-forge
+# from pixi.lock there), never the list itself.
+
+version: 2
+
+build:
+  os: ubuntu-24.04
+  tools:
+    python: "3.12"
+  jobs:
+    post_checkout:
+      # RTD clones shallow, which hides the tags versioneer derives the version from.
+      - git fetch --unshallow || true
+
+sphinx:
+  configuration: docs/conf.py
+  # Keep in step with the `-W` in the `docs` pixi task.
+  fail_on_warning: true
+
+python:
+  install:
+    - method: pip
+      path: .
+      extra_requirements:
+        - docs
+        - fast

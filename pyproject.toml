@@ -1,0 +1,211 @@
+[build-system]
+requires = ["setuptools>=64", "versioneer[toml]==0.29"]
+build-backend = "setuptools.build_meta"
+
+
+[project]
+name = "excelizarr"
+description = "A cloud-native representation of an .xlsx workbook, in Zarr. Yes, really."
+readme = "README.md"
+requires-python = ">=3.11"
+authors = [{ name = "Charles Turner", email = "charles.turner@anu.edu.au" }]
+maintainers = [{ name = "Charles Turner", email = "charles.turner@anu.edu.au" }]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Programming Language :: Python :: 3",
+    "License :: OSI Approved :: Apache Software License",
+    "Operating System :: OS Independent",
+]
+license = { text = "Apache Software License 2.0" }
+dependencies = [
+    "numpy",
+    "openpyxl", # the full-fidelity reader and the only writer: formulas, formats, merges
+    "pandas",
+    "zarr>=3.1",
+]
+
+dynamic = ["version"]
+
+[project.optional-dependencies]
+# The calamine-backed reader (cell-level types, unlike fastexcel's column-typed Arrow):
+fast = ["python-calamine"]
+# Version-controlled spreadsheets. Any zarr store works; this just makes it fun.
+icechunk = ["icechunk"]
+dev = [
+    "black",      # formatting
+    "coverage",   # testing
+    "hypothesis", # testing (property-based)
+    "mypy",       # linting
+    "pytest",     # testing
+    "ruff",       # linting
+]
+# Declared once, consumed twice: pixi exposes every optional-dependency group as a
+# feature of the same name, and Read the Docs installs ``.[docs]`` with pip.
+docs = [
+    "sphinx>=8",
+    "myst-nb>=1.2",               # MyST pages *and* executed code cells; it bundles myst-parser
+    "pydata-sphinx-theme>=0.16",
+    "sphinx-design",
+    "sphinx-copybutton",
+    "ipykernel",                  # myst-nb executes pages through a Jupyter kernel
+    "icechunk",                   # the version-control page is executed
+]
+
+[project.urls]
+bugs = "https://github.com/charles-turner-1/excelizarr/issues"
+homepage = "https://github.com/charles-turner-1/excelizarr"
+
+[tool.setuptools]
+package-dir = { "" = "src" }
+
+[tool.setuptools.package-data]
+"*" = ["*.*"]
+
+
+# Mypy
+# ----
+
+[tool.mypy]
+files = "src"
+exclude = ["src/excelizarr/_version.py"]
+strict = true
+warn_unreachable = true
+warn_no_return = true
+allow_subclassing_any = true
+
+[[tool.mypy.overrides]]
+# versioneer-generated. ``exclude`` keeps it out of ``mypy`` runs that discover files,
+# but pre-commit passes ``src`` explicitly, which bypasses ``exclude``.
+module = ["excelizarr._version"]
+ignore_errors = true
+
+[[tool.mypy.overrides]]
+# Neither ships type information.
+module = ["openpyxl.*", "python_calamine.*"]
+ignore_missing_imports = true
+
+[tool.versioneer]
+VCS = "git"
+style = "pep440"
+versionfile_source = "src/excelizarr/_version.py"
+versionfile_build = "excelizarr/_version.py"
+tag_prefix = "v"
+parentdir_prefix = "excelizarr-"
+
+[tool.coverage.run]
+omit = ["*/_version.py"]
+
+[tool.ruff]
+target-version = "py311"
+exclude = [".git", ".mypy_cache", ".ruff_cache", ".venv", ".pixi", "_build", "build", "dist", "versioneer.py", "_version.py", "tests"]
+
+[tool.ruff.lint]
+# E402: module level import not at top of file
+# E501: line too long - let black worry about that
+# D105: magic methods carry their meaning in the name
+# D205: black owns the wrapping of multi-sentence summaries
+ignore = ["E402", "E501", "D105", "D205"]
+select = ["F", "E", "W", "I", "UP", "D"]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**" = ["D401"]
+
+[tool.ruff.lint.pydocstyle]
+convention = "numpy"
+
+[tool.ruff.lint.isort]
+known-first-party = ["excelizarr"]
+
+[tool.pytest.ini_options]
+addopts = "--hypothesis-show-statistics"
+
+
+# Pixi
+# ----
+
+[tool.pixi.workspace]
+channels = ["conda-forge"]
+name = "excelizarr"
+platforms = ["osx-arm64", "linux-64", "win-64"]
+
+[tool.pixi.dependencies]
+python = ">=3.11"
+numpy = "*"
+openpyxl = "*"
+pandas = "*"
+zarr = ">=3.1"
+versioneer = ">=0.29,<0.30"
+setuptools = ">=64"
+
+[tool.pixi.pypi-dependencies]
+excelizarr = { editable = true, path = "." }
+
+[tool.pixi.environments]
+default = { features = ["dev", "test", "fast", "icechunk"], solve-group = "default" }
+test-py311 = { features = ["py311", "test", "fast", "icechunk"] }
+test-py312 = { features = ["py312", "test", "fast", "icechunk"] }
+test-py313 = { features = ["py313", "test", "fast", "icechunk"] }
+# The bare arm: no fastexcel, no icechunk. Their tests ``importorskip``, and this is the
+# environment that proves excelizarr itself never needs either.
+test-minimal = { features = ["test"] }
+docs = { features = ["docs", "fast"], solve-group = "default" }
+# Only the benchmark script needs these: the HDF comparison is the whole point of it.
+bench = { features = ["bench", "fast"], solve-group = "default" }
+
+[tool.pixi.feature.fast.dependencies]
+python-calamine = "*"
+
+[tool.pixi.feature.icechunk.dependencies]
+icechunk = "*"
+
+[tool.pixi.feature.test.dependencies]
+pytest = ">=8.4.2"
+coverage = "*"
+hypothesis = "*"
+
+[tool.pixi.feature.test.tasks]
+test = { cmd = "pytest tests", description = "Run tests" }
+test-cov = { cmd = "coverage run -m --source=excelizarr pytest tests && coverage xml", description = "Run tests with coverage and generate xml report" }
+
+[tool.pixi.feature.dev.dependencies]
+pre-commit = ">=4.2.0,<5"
+ruff = "*"
+black = "*"
+mypy = "*"
+pandas-stubs = "*"
+
+[tool.pixi.feature.dev.tasks]
+ruff = { cmd = "ruff check src", description = "Run ruff checks" }
+black = { cmd = "black src tests benchmarks", description = "Run the black formatter" }
+mypy = { cmd = "mypy", description = "Run mypy type checks (config: [tool.mypy])" }
+pre-commit = { cmd = "pre-commit run --all-files", description = "Run pre-commit hooks" }
+pre-commit-install = { cmd = "pre-commit install", description = "Install pre-commit hooks" }
+
+[tool.pixi.feature.docs.tasks]
+docs = { cmd = "sphinx-build -W --keep-going -b html docs docs/_build/html", description = "Build the docs (warnings are errors)" }
+
+[tool.pixi.feature.bench.dependencies]
+pytables = "*"
+
+[tool.pixi.feature.bench.tasks]
+bench = { cmd = "python benchmarks/bench_read.py", description = "Time xlsx vs HDF vs Zarr reads" }
+
+[tool.pixi.feature.py311.dependencies]
+python = "3.11.*"
+
+[tool.pixi.feature.py312.dependencies]
+python = "3.12.*"
+
+[tool.pixi.feature.py313.dependencies]
+python = "3.13.*"
+
+[tool.numpydoc_validation]
+checks = [
+    "PR01", "PR02", "PR03", "PR04", "PR05", "PR06", "PR07",
+    "RT01", "RT03", "RT04",
+    "GL02", "GL03",
+    "YD01",
+]
+# Single-underscore helpers are private and documented as much as they need, which is
+# often one line. Dunders still validate: ``__getitem__``/``__setitem__`` are API here.
+exclude = ['\._[a-z]\w*$']

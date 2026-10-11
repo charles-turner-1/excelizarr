@@ -1,0 +1,37 @@
+repos:
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: 'v0.12.10'
+    hooks:
+      - id: ruff
+        args: ['--fix']
+
+  - repo: https://github.com/psf/black
+    rev: 25.1.0
+    hooks:
+    - id: black
+      language_version: python3
+
+  - repo: https://github.com/numpy/numpydoc
+    rev: 'v1.10.0'
+    hooks:
+    - id: numpydoc-validation
+      name: numpydoc-validation
+      # Checks the docstring *content* against the signature -- the half ruff's D rules
+      # leave open, since `convention = "numpy"` switches D417 off. The check list lives
+      # in [tool.numpydoc_validation] in pyproject.toml.
+      files: ^src/excelizarr/
+      exclude: ^src/excelizarr/_version\.py$
+
+  - repo: https://github.com/pre-commit/mirrors-mypy
+    rev: 'v1.17.1'
+    hooks:
+    - id: mypy
+      name: mypy
+      # `mypy src` in pre-commit's own venv, so the CI pre-commit job needs no pixi.
+      # additional_dependencies carry the runtime imports mypy has to follow.
+      args: [src]
+      pass_filenames: false
+      additional_dependencies:
+        - numpy
+        - pandas-stubs
+        - zarr>=3.1
