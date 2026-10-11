@@ -29,6 +29,7 @@ __all__ = [
     "WorkbookModel",
     "as_ints",
     "decode",
+    "value_slots",
 ]
 
 #: The number format every cell has unless told otherwise. Always index 0.
@@ -309,6 +310,26 @@ def as_ints(numbers: npt.NDArray[np.float64]) -> npt.NDArray[np.object_]:
 
 def _times(us: npt.NDArray[np.int64]) -> list[dt.time]:
     return [(dt.datetime.min + dt.timedelta(microseconds=int(u))).time() for u in us]
+
+
+def value_slots(kind: npt.NDArray[Any]) -> list[str]:
+    """Return the slots :func:`decode` reads for a region with these ``kind`` codes.
+
+    A reader can fetch them all at once before decoding, rather than one by one as
+    :func:`decode` asks for them.
+
+    Parameters
+    ----------
+    kind : numpy.ndarray
+        The region's ``kind`` array.
+
+    Returns
+    -------
+    list of str
+        Slot names, in the order :func:`decode` asks for them.
+    """
+    present = sorted(set(np.unique(kind).tolist()) - {CellKind.EMPTY})
+    return list(dict.fromkeys(KIND_SLOT[CellKind(code)] for code in present))
 
 
 def decode(arrays: Mapping[str, npt.NDArray[Any]]) -> npt.NDArray[np.object_]:

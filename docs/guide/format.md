@@ -28,6 +28,19 @@ book.zarr/                       attrs["excelizarr"]: format, sheets [{name, key
 Every array has dimensions `("row", "col")` and is anchored at `A1`, so cell `B3` is
 `[2, 1]` in every one of them.
 
+The root's `zarr.json` also holds zarr's *consolidated metadata*: a copy of every
+node's metadata above, so opening the root opens the whole tree. On an object store
+that turns "open the workbook, find the sheet, open each array" from a request per node
+into one request. Each node keeps its own `zarr.json` as well, so a zarr reader that
+doesn't use consolidated metadata (it isn't in the zarr v3 spec yet) still reads the
+store. Stores in an Icechunk repository don't carry it: Icechunk keeps its own metadata,
+and opening a node there is already cheap.
+
+Every node's metadata is still written exactly once. The writer builds the whole tree's
+metadata in memory, consolidates it there, and writes every `zarr.json` (the root's
+included) before any chunk, which is what lets an append-only `ZipStore` hold a
+workbook.
+
 ## Cell kinds
 
 ```{code-cell} python
@@ -99,8 +112,17 @@ xz.xlsx_to_zarr("big.xlsx", "s3://bucket/big.zarr", chunks=(4096, 64), shards=(6
 
 ## Versioning
 
-The root's `attrs["excelizarr"]["format"]` is the format version, currently `1`.
+The root's `attrs["excelizarr"]["format"]` is the format version, currently `2`.
 Readers refuse a store from a newer format rather than misreading it.
+
+| format | change |
+|---|---|
+| 1 | the layout above |
+| 2 | consolidated metadata in the root |
+
+Format-2 readers read format-1 stores as they always were. Format-1 readers refuse
+format-2 stores: they don't know about the root's copy of the metadata, so growing a
+sheet in place would leave it stale.
 
 ## What isn't stored (yet)
 

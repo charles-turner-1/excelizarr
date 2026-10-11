@@ -23,8 +23,10 @@ excelizarr itself never imports them.
 
 With an `.xlsx` in a bucket, every read downloads the whole file, unzips it, and parses
 the XML for the sheet you want, even if you only wanted one cell. With a zarr store,
-`open_workbook` reads the root's attributes, and a range read fetches just the chunks
-the range overlaps, from just the slots it uses.
+`open_workbook` reads one document, the root's `zarr.json`, which carries every node's
+metadata. A range read then fetches just the chunks the range overlaps, from just the
+slots it uses: `kind` first, to learn which slots that is, then all of those at once.
+However many slots a range touches, that's two round trips to the store.
 
 ```{code-cell} python
 import openpyxl
@@ -62,9 +64,9 @@ cells = wb["Big!A15000:B15010"]
 CountingStore.gets, cells.shape
 ```
 
-Those are the metadata documents on the path down to the sheet, plus one chunk each
-from `kind` and `number`. Column `C` holds the strings and is never touched, and nor
-are the other nineteen row-chunks of the sheet.
+That's the root's `zarr.json`, plus one chunk each from `kind` and `number`. Column
+`C` holds the strings and is never touched, and nor are the other nineteen row-chunks
+of the sheet.
 
 ## A zip of XML becomes a zip of chunks
 

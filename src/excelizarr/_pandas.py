@@ -23,9 +23,8 @@ from typing import Any
 import numpy as np
 from pandas.io.excel._base import BaseExcelReader  # type: ignore[attr-defined]
 
-from .io_zarr import LazySlots
 from .kinds import CellKind, Slot
-from .model import as_ints, decode
+from .model import as_ints, decode, value_slots
 from .workbook import ZarrSheet, ZarrWorkbook
 
 __all__ = ["ZarrExcelReader", "sheet_data"]
@@ -53,8 +52,9 @@ def sheet_data(
         nrows = min(nrows, file_rows_needed)
     if nrows == 0 or ncols == 0:
         return []
-    slots = LazySlots(sheet.group, slice(0, nrows), slice(0, ncols))
+    slots = sheet.slots((slice(0, nrows), slice(0, ncols)))
     kind = slots[Slot.KIND]
+    slots.prefetch(value_slots(kind))
     vals = decode(slots)
 
     # pandas' openpyxl reader: whole-number floats come back as ints, errors as NaN

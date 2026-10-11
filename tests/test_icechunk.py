@@ -51,3 +51,19 @@ def test_branching_scenarios(sample_xlsx: Path) -> None:
     high = xz.read_excel(repo.readonly_session("high-rates").store, sheet_name="Lookup")
     assert main["value"].tolist() == [1.5, 2.5]
     assert high["value"].tolist() == [9.0, 9.5]
+
+
+def test_no_consolidated_metadata(sample_xlsx: Path) -> None:
+    """Icechunk keeps its own metadata, so the workbook doesn't consolidate there, and
+    growing a sheet in place doesn't try to.
+    """
+    repo = icechunk.Repository.create(icechunk.in_memory_storage())
+    session = repo.writable_session("main")
+    wb = xz.xlsx_to_zarr(sample_xlsx, session.store, mode="w")
+    assert wb.root.metadata.consolidated_metadata is None
+    wb = xz.open_workbook(session.store, mode="r+")
+    wb["Lookup"]["D9"] = 4.0
+    session.commit("grow")
+    now = xz.open_workbook(repo.readonly_session("main").store)
+    assert now["Lookup"].shape == (9, 4)
+    assert now["Lookup"]["D9"] == 4.0

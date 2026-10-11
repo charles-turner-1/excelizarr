@@ -164,6 +164,14 @@ Known risks, decided up front:
 - **`""` is EMPTY.** openpyxl never writes empty strings, and pandas reads them as empty.
 - **Metadata is written exactly once per node** (`attributes=` at creation), so
   append-only stores (`ZipStore`) work.
+- **Consolidated metadata in the root (format 2), except under Icechunk.** Measured
+  against S3, a 100-cell range read was 11 sequential GETs at ~75 ms each: the v2
+  probes, a `zarr.json` per node on the way down (`kind`'s twice), then a chunk per
+  slot. The writer builds every node's metadata in memory, consolidates it, and writes
+  it all before any chunk, so the root is still written once. Growing a sheet in place
+  re-consolidates. Readers open as zarr v3 only, and fetch a region's value slots
+  concurrently once `kind` says which they are: a range read is now the root's
+  `zarr.json`, then `kind`, then the value slots together.
 
 ## Found by hypothesis
 
