@@ -6,10 +6,9 @@
 > This is a bit of fun. It works and it's property-tested, but please don't put it
 > anywhere important. Claude wrote most of the code at my direction.
 
-A friend sped up a modelling pipeline by converting its input spreadsheets to HDF once,
-so it wasn't paying for `pd.read_excel` on every run. That raised an obvious question:
-why not Zarr? Then a workbook is chunked, compressed and cloud-readable, and with
-[Icechunk](https://icechunk.io) it's version-controlled too.
+A friend made me realise you could save an `.xlsx` spreadsheet as an HDF5 file. That
+raised an obvious question: why not Zarr? Then a workbook is chunked, compressed and
+cloud-readable, and with [Icechunk](https://icechunk.io) it's version-controlled too.
 
 ```python
 import excelizarr as xz
@@ -64,3 +63,9 @@ pixi run test             # hypothesis-heavy test suite
 pixi run -e docs docs     # executed MyST docs, warnings are errors
 pixi run -e bench bench   # the benchmark above
 ```
+
+## Licence
+
+[The Not Fit For Purpose Licence](LICENSE), which is the Apache License 2.0 with a
+preamble. This tool is not fit for purpose. I don't care what your purpose is, this
+isn't it.
