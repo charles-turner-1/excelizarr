@@ -81,6 +81,18 @@ writes. A higher limit set in zarr's config is left alone:
 zarr.config.set({"async.concurrency": 256})   # or ZARR_ASYNC_CONCURRENCY=256
 ```
 
+That still leaves one request per chunk. If a workbook is mostly read whole, write it
+with `shards=` and each slot is packed into objects of many chunks, so a whole-sheet
+read is a request or so per shard instead:
+
+```python
+xz.xlsx_to_zarr("big.xlsx", "s3://bucket/big.zarr", shards=(65536, 256))
+```
+
+It isn't the default because range reads pay for it. Reading a chunk out of a shard
+means reading the shard's index first, so the two round trips above become four. And
+an in-place cell write rewrites the whole shard, rather than one chunk.
+
 ## A zip of XML becomes a zip of chunks
 
 An `.xlsx` is a zip of XML files. Because zarr can live in a zip as well, so can an

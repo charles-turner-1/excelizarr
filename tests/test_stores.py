@@ -24,8 +24,11 @@ class CountingStore(zarr.storage.WrapperStore):  # type: ignore[type-arg]
     """Record every key read, and the most reads ever in flight at once.
 
     Each read sleeps a little, as a request to an object store would, so reads that
-    are issued together overlap and reads issued one after another don't.
+    are issued together overlap and reads issued one after another don't. Ranged reads
+    (sharded arrays use them) go through :meth:`get` too, so they're counted.
     """
+
+    get_ranges = zarr.abc.store.Store.get_ranges  # zarr's default: one get per range
 
     def __init__(self, store: zarr.abc.store.Store, latency: float = 0.02) -> None:
         super().__init__(store)
@@ -47,6 +50,9 @@ class CountingStore(zarr.storage.WrapperStore):  # type: ignore[type-arg]
             return await self._store.get(key, prototype, byte_range)
         finally:
             self.in_flight -= 1
+
+    async def get_partial_values(self, prototype, key_ranges):  # type: ignore[no-untyped-def]
+        return await asyncio.gather(*(self.get(k, prototype, r) for k, r in key_ranges))
 
 
 @pytest.fixture
@@ -211,3 +217,26 @@ def test_concurrency_floor(tmp_path: Path) -> None:
     with zarr.config.set({"async.concurrency": 200}):
         sheet.slots(whole)[Slot.NUMBER]
     assert counted.max_in_flight == 140  # every chunk at once
+
+
+@pytest.mark.parametrize(
+    ("shards", "whole", "ranged"),
+    [(None, 140, 1), ((65536, 256), 3, 2)],
+    ids=["unsharded", "sharded"],
+)
+def test_what_shards_trade(
+    tmp_path: Path, shards: tuple[int, int] | None, whole: int, ranged: int
+) -> None:
+    """Shards make a whole sheet a request per shard rather than per chunk, and cost a
+    range read an extra one, for the shard's index. Hence opt-in.
+    """
+    counted = CountingStore(_tall(tmp_path, 140 * 1024, shards), latency=0)
+
+    def per_slot() -> collections.Counter[str]:
+        return collections.Counter(k.split("/")[2] for k in counted.keys if "/c/" in k)
+
+    xz.read_excel(counted, sheet_name="Tall", header=None)
+    assert max(per_slot().values()) <= whole + (shards is not None)
+    counted.reset()
+    xz.open_workbook(counted)["Tall!A70000:A70010"]
+    assert per_slot() == {"kind": ranged, "number": ranged}
