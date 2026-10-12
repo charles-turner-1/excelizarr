@@ -47,7 +47,7 @@ because its label columns are stored as pickled object arrays.
 ## What isn't measured
 
 - Object-storage latency. Those numbers depend on the bucket, the region and the
-  concurrency settings much more than on the format.
-- Sharding (`shards=`), which matters most on object stores with many chunks.
+  concurrency settings much more than on the format; one set of S3 measurements, with
+  and without sharding, is in [Stores, local and otherwise](cloud.md).
 - Multi-sheet workbooks. `read_excel` on one sheet of a many-sheet `.xlsx` still pays
   to open the zip, while a zarr store doesn't touch the other sheets at all.

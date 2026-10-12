@@ -36,8 +36,9 @@ book.zarr/                      group  attrs: excelizarr_format=1, sheet_order, 
         └── numfmt    uint16                index into root number_formats (0 = General)
 ```
 
-- Chunks default to `(1024, 256)` clipped to the sheet shape. Sharding (`shards=`) is
-  optional for big sheets. Zarr skips chunks that are all fill value, so sparse sheets
+- Chunks default to `(1024, 256)` clipped to the sheet shape. Shards default to
+  `(65536, 256)`: on S3 that halved a 500,000-row whole-sheet read (6.1 s → 3.0 s) for
+  about 50 ms on a range read. `shards=None` turns them off. Zarr skips chunks that are all fill value, so sparse sheets
   cost almost nothing on disk.
 - A sheet name can be any string. Store it under an escaped group key and keep the real
   name in `sheet_order`.
@@ -48,15 +49,16 @@ book.zarr/                      group  attrs: excelizarr_format=1, sheet_order, 
 ## Package layout (`~/excelizarr`)
 
 Copied from xrexpr: `pyproject.toml` (setuptools + versioneer instead of maturin; same
-ruff/mypy-strict/numpydoc/pytest config; pixi workspace with `default`, `test-py311..314`
+ruff/mypy-strict/numpydoc/pytest config; pixi workspace with `default`, `test-py312..314`
 and `docs` environments), `.pre-commit-config.yaml`, `.github/workflows/ci.yml`,
 `.readthedocs.yaml`, `.gitignore`, `.gitattributes`, `setup.py`, `versioneer.py` (copied
 from `~/xrexpr/versioneer.py`), `CLAUDE.md` (pixi task table), `README.md`, `planning/`
 (this plan goes there as `planning/00-plan.md`). I'll run `git init` so versioneer has a
 VCS.
 
-- Python floor is 3.11 because zarr 3 needs it.
-- Runtime deps: `zarr>=3.1`, `numpy`, `pandas`, `openpyxl`.
+- Python floor is 3.12, because zarr 3.3 needs it, and 3.3 is what makes a sharded
+  read coalesce its chunk requests (`Store.get_ranges`).
+- Runtime deps: `zarr>=3.3`, `numpy`, `pandas`, `openpyxl`.
 - Extras: `fast = [fastexcel]`, `icechunk = [icechunk]`, `dev`, `docs`. Pixi's test
   feature pulls in both fastexcel and icechunk, and those tests `importorskip`.
 
@@ -164,6 +166,14 @@ Known risks, decided up front:
 - **`""` is EMPTY.** openpyxl never writes empty strings, and pandas reads them as empty.
 - **Metadata is written exactly once per node** (`attributes=` at creation), so
   append-only stores (`ZipStore`) work.
+- **Consolidated metadata in the root (format 2), except under Icechunk.** Measured
+  against S3, a 100-cell range read was 11 sequential GETs at ~75 ms each: the v2
+  probes, a `zarr.json` per node on the way down (`kind`'s twice), then a chunk per
+  slot. The writer builds every node's metadata in memory, consolidates it, and writes
+  it all before any chunk, so the root is still written once. Growing a sheet in place
+  re-consolidates. Readers open as zarr v3 only, and fetch a region's value slots
+  concurrently once `kind` says which they are: a range read is now the root's
+  `zarr.json`, then `kind`, then the value slots together.
 
 ## Found by hypothesis
 

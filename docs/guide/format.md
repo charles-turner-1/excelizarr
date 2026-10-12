@@ -28,6 +28,19 @@ book.zarr/                       attrs["excelizarr"]: format, sheets [{name, key
 Every array has dimensions `("row", "col")` and is anchored at `A1`, so cell `B3` is
 `[2, 1]` in every one of them.
 
+The root's `zarr.json` also holds zarr's *consolidated metadata*: a copy of every
+node's metadata above, so opening the root opens the whole tree. On an object store
+that turns "open the workbook, find the sheet, open each array" from a request per node
+into one request. Each node keeps its own `zarr.json` as well, so a zarr reader that
+doesn't use consolidated metadata (it isn't in the zarr v3 spec yet) still reads the
+store. Stores in an Icechunk repository don't carry it: Icechunk keeps its own metadata,
+and opening a node there is already cheap.
+
+Every node's metadata is still written exactly once. The writer builds the whole tree's
+metadata in memory, consolidates it there, and writes every `zarr.json` (the root's
+included) before any chunk, which is what lets an append-only `ZipStore` hold a
+workbook.
+
 ## Cell kinds
 
 ```{code-cell} python
@@ -90,17 +103,22 @@ from excelizarr.io_zarr import sheet_key
 ## Chunking
 
 Chunks default to 1024 rows × 256 columns, clipped to the sheet. Spreadsheets are long
-and narrow, and most reads want whole columns. For big sheets on object storage, pass
-`shards=` to pack many chunks into one object:
+and narrow, and most reads want whole columns. Chunks are packed into shards of 65,536
+rows × 256 columns (64 chunks), also clipped, so each slot of a sheet under 65,536 rows
+is one object. Both are ordinary zarr v3 and any zarr 3 reader decodes them; stores
+written before sharding was the default read the same. To change either:
 
 ```python
-xz.xlsx_to_zarr("big.xlsx", "s3://bucket/big.zarr", chunks=(4096, 64), shards=(65536, 256))
+xz.xlsx_to_zarr("big.xlsx", "s3://bucket/big.zarr", chunks=(4096, 64), shards=None)
 ```
+
+[Stores, local and otherwise](cloud.md) has what shards trade, and S3 timings.
 
 ## Versioning
 
 The root's `attrs["excelizarr"]["format"]` is the format version, currently `1`.
-Readers refuse a store from a newer format rather than misreading it.
+Readers refuse a store from a newer format rather than misreading it. Any change an
+older reader would misread bumps it.
 
 ## What isn't stored (yet)
 

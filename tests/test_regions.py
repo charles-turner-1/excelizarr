@@ -77,7 +77,10 @@ def test_cell_writes_land_and_touch_nothing_else(
     sheet = xz.open_workbook(store, mode="r+")[grid.name]
     i = data.draw(st.integers(0, grid.shape[0] + 2))
     j = data.draw(st.integers(0, grid.shape[1] + 2))
-    v = data.draw(cell_values)
+    # assigning "=..." writes a formula, not text: that's another test's business
+    v = data.draw(
+        cell_values.filter(lambda x: not (isinstance(x, str) and x.startswith("=")))
+    )
     sheet[i, j] = v
     nr, nc = max(grid.shape[0], i + 1), max(grid.shape[1], j + 1)
     assert sheet.shape == (nr, nc)

@@ -1,9 +1,12 @@
 """Lazy, chunk-at-a-time access to a workbook store.
 
-:class:`ZarrWorkbook` opens nothing but the root group's attributes. Indexing a
-:class:`ZarrSheet` with a range reads the chunks that range overlaps, and only from the
-slots the range's cells use, so ``wb["Inputs!B2:D10"]`` against an ``s3://`` store
-costs a handful of small GETs no matter how big the sheet is.
+:class:`ZarrWorkbook` opens nothing but the root group, whose consolidated metadata
+describes every array, so opening a sheet or an array costs no reads.
+Indexing a :class:`ZarrSheet` with a range reads the ``kind`` chunks that range
+overlaps, then the chunks of every value slot those kinds use, all at once. So
+``wb["Inputs!B2:D10"]`` against an ``s3://`` store costs the same two steps (each a
+shard index, then the chunks) no matter how big the sheet is, or how many slots the
+range touches.
 """
 
 from __future__ import annotations
@@ -18,9 +21,17 @@ import zarr
 
 from ._refs import RangeRef, format_range, parse_range
 from .exceptions import InvalidReferenceError
-from .io_zarr import ATTR, LazySlots, _read_grid, open_root
+from .io_zarr import (
+    ATTR,
+    LazySlots,
+    OpenArrays,
+    _gather,
+    _read_grids,
+    _reconsolidate,
+    open_root,
+)
 from .kinds import FILL, KIND_SLOT, SLOT_DTYPES, CellKind, Slot, encode
-from .model import VALUE_SLOTS, NumberFormats, WorkbookModel, decode
+from .model import VALUE_SLOTS, NumberFormats, WorkbookModel, decode, value_slots
 
 __all__ = ["ZarrSheet", "ZarrWorkbook"]
 
@@ -44,6 +55,9 @@ class ZarrWorkbook:
         assert isinstance(meta, dict)
         self._meta = meta
         self._keys = {s["name"]: s["key"] for s in meta["sheets"]}
+        # one ZarrSheet per sheet: each holds its open arrays, so every handle to a
+        # sheet sees it grow when any of them writes past its edge
+        self._sheets: dict[str, ZarrSheet] = {}
 
     @property
     def sheet_names(self) -> list[str]:
@@ -105,11 +119,11 @@ class ZarrWorkbook:
             name = name_or_index
         if name not in self._keys:
             raise KeyError(name)
-        sheets = self.root["sheets"]
-        assert isinstance(sheets, zarr.Group)
-        group = sheets[self._keys[name]]
-        assert isinstance(group, zarr.Group)
-        return ZarrSheet(group, name, self)
+        if name not in self._sheets:
+            group = self.root[f"sheets/{self._keys[name]}"]
+            assert isinstance(group, zarr.Group)
+            self._sheets[name] = ZarrSheet(group, name, self)
+        return self._sheets[name]
 
     def __getitem__(self, key: str | int) -> Any:
         """Return a sheet (``wb["Inputs"]``, ``wb[0]``) or a range's values.
@@ -161,7 +175,9 @@ class ZarrWorkbook:
             Every sheet, in tab order.
         """
         return WorkbookModel(
-            [_read_grid(s.group) for s in self], self.number_formats, self.defined_names
+            _read_grids([s.group for s in self]),
+            self.number_formats,
+            self.defined_names,
         )
 
     def to_xlsx(self, path: str | os.PathLike[str]) -> None:
@@ -232,11 +248,10 @@ class ZarrSheet:
         self.group = group
         self.name = name
         self.workbook = workbook
+        self._arrays = OpenArrays(group)
 
     def _array(self, slot: str) -> zarr.Array[Any]:
-        arr = self.group[slot]
-        assert isinstance(arr, zarr.Array)
-        return arr
+        return self._arrays[slot]
 
     @property
     def shape(self) -> tuple[int, int]:
@@ -292,7 +307,7 @@ class ZarrSheet:
             Slot name → numpy array for the region.
         """
         rows, cols, _ = _as_slices(key, self.shape)
-        return LazySlots(self.group, rows, cols)
+        return LazySlots(self._arrays, rows, cols)
 
     def __getitem__(self, key: Key | RangeRef) -> Any:
         """Read a cell or a range.
@@ -312,7 +327,9 @@ class ZarrSheet:
         rows, cols, scalar = _as_slices(key, self.shape)
         if scalar and (rows.start >= rows.stop or cols.start >= cols.stop):
             return None  # a single cell beyond the used range is just empty
-        out = decode(LazySlots(self.group, rows, cols))
+        slots = LazySlots(self._arrays, rows, cols)
+        slots.prefetch(value_slots(slots[Slot.KIND]))
+        out = decode(slots)
         return out[0, 0] if scalar else out
 
     def formulas(self, key: Key | RangeRef = "A:XFD") -> npt.NDArray[np.object_]:
@@ -381,8 +398,10 @@ class ZarrSheet:
         block[...] = value if np.ndim(value) == 0 else np.asarray(value, dtype=object)
         need = (max(self.shape[0], rows.stop), max(self.shape[1], cols.stop))
         if need != self.shape:
-            for slot in SLOT_DTYPES:
-                self._array(slot).resize(need)
+            arrays = [self._array(slot) for slot in SLOT_DTYPES]
+            _gather(a.async_array.resize(need) for a in arrays)
+            # the root's consolidated copy of these arrays' metadata is stale now
+            self.workbook.root = _reconsolidate(self.workbook.root)
 
         enc: dict[str, npt.NDArray[Any]] = {
             slot: np.full(block.shape, FILL[slot], dtype=SLOT_DTYPES[slot])
@@ -396,8 +415,10 @@ class ZarrSheet:
             enc[Slot.KIND][i, j] = kind
             if kind is not CellKind.EMPTY:
                 enc[KIND_SLOT[kind]][i, j] = stored
-        for slot, data in enc.items():
-            self._array(slot)[rows, cols] = data
+        _gather(
+            self._array(slot).async_array.setitem((rows, cols), data)
+            for slot, data in enc.items()
+        )
 
     def to_pandas(self, **kwargs: Any) -> Any:
         """Read this sheet into a DataFrame, exactly as ``pandas.read_excel`` would.

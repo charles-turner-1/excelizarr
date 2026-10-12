@@ -22,14 +22,15 @@ xz.zarr_to_xlsx("s3://bucket/model.zarr", "roundtrip.xlsx")       # formulas int
 
 ## How it works
 
-Each sheet becomes a zarr group of aligned, chunked 2D arrays:
+Each sheet becomes a zarr group of aligned, chunked (and sharded) 2D arrays:
 
 - `kind`: which type each cell holds
 - one array per value type: `number`, `string`, `bool`, `temporal`
 - `formula` and `numfmt`
 
 Zarr never writes a chunk that's all fill value, so unused types and empty space cost
-nothing. A range read fetches only the chunks it overlaps. See
+nothing. A range read fetches only the chunks it overlaps, and the root's consolidated
+metadata means opening a workbook is a single read. See
 [the format](docs/guide/format.md).
 
 - **`read_excel` parity.** `xz.read_excel` runs pandas' own Excel parser over the stored
@@ -38,7 +39,7 @@ nothing. A range read fetches only the chunks it overlaps. See
 - **Round trips.** Formulas, number formats, merged cells, column widths, frozen panes
   and defined names all survive xlsx → zarr → xlsx.
 - **Any zarr store.** Local, `s3://`, in memory, a `ZipStore`, or an Icechunk session.
-- **In-place edits.** `wb["Inputs"]["B2"] = 42` rewrites one chunk.
+- **In-place edits.** `wb["Inputs"]["B2"] = 42` rewrites the one shard that cell is in.
 
 ## Is it fast?
 
@@ -55,6 +56,20 @@ On a 50,000 × 20 sheet ([details](docs/guide/benchmarks.md)):
 So HDF is still the right call for "the whole sheet as a DataFrame, fast". excelizarr
 is 14× faster than parsing the `.xlsx`, smaller on disk than either, and much better
 at the cloud-shaped jobs: range reads, partial access and version control.
+
+From S3 (`ap-southeast-2`, from Australia), on a 500,000 × 20 sheet
+([details](docs/guide/cloud.md#whole-sheets)):
+
+| read | seconds |
+|---|---:|
+| `pd.read_excel` (openpyxl) | 34.76 |
+| `pd.read_excel` (calamine) | 8.26 |
+| download + `pd.read_hdf` | **1.99** |
+| `xz.read_excel` | 2.96 |
+| open + 100-cell range read | **0.48** |
+
+The range read costs the same at 10,000 rows as at 500,000: it only ever fetches the
+chunks it needs.
 
 ## Development
 

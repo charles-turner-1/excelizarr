@@ -46,7 +46,6 @@ jobs:
         # has none of them, which is what proves excelizarr never needs calamine or
         # icechunk to work.
         environment:
-          - test-py311
           - test-py312
           - test-py313
           - test-minimal

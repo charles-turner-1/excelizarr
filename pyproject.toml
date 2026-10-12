@@ -7,7 +7,7 @@ build-backend = "setuptools.build_meta"
 name = "excelizarr"
 description = "A cloud-native representation of an .xlsx workbook, in Zarr. Yes, really."
 readme = "README.md"
-requires-python = ">=3.11"
+requires-python = ">=3.12"
 authors = [{ name = "Charles Turner", email = "charles.turner@anu.edu.au" }]
 maintainers = [{ name = "Charles Turner", email = "charles.turner@anu.edu.au" }]
 classifiers = [
@@ -21,7 +21,7 @@ dependencies = [
     "numpy",
     "openpyxl", # the full-fidelity reader and the only writer: formulas, formats, merges
     "pandas",
-    "zarr>=3.1",
+    "zarr>=3.3",  # Store.get_ranges: shard reads coalesce
 ]
 
 dynamic = ["version"]
@@ -96,7 +96,7 @@ parentdir_prefix = "excelizarr-"
 omit = ["*/_version.py"]
 
 [tool.ruff]
-target-version = "py311"
+target-version = "py312"
 exclude = [".git", ".mypy_cache", ".ruff_cache", ".venv", ".pixi", "_build", "build", "dist", "versioneer.py", "_version.py", "tests"]
 
 [tool.ruff.lint]
@@ -129,11 +129,11 @@ name = "excelizarr"
 platforms = ["osx-arm64", "linux-64", "win-64"]
 
 [tool.pixi.dependencies]
-python = ">=3.11"
+python = ">=3.12"
 numpy = "*"
 openpyxl = "*"
 pandas = "*"
-zarr = ">=3.1"
+zarr = ">=3.3"
 versioneer = ">=0.29,<0.30"
 setuptools = ">=64"
 
@@ -142,7 +142,6 @@ excelizarr = { editable = true, path = "." }
 
 [tool.pixi.environments]
 default = { features = ["dev", "test", "fast", "icechunk"], solve-group = "default" }
-test-py311 = { features = ["py311", "test", "fast", "icechunk"] }
 test-py312 = { features = ["py312", "test", "fast", "icechunk"] }
 test-py313 = { features = ["py313", "test", "fast", "icechunk"] }
 # The bare arm: no fastexcel, no icechunk. Their tests ``importorskip``, and this is the
@@ -189,9 +188,6 @@ pytables = "*"
 
 [tool.pixi.feature.bench.tasks]
 bench = { cmd = "python benchmarks/bench_read.py", description = "Time xlsx vs HDF vs Zarr reads" }
-
-[tool.pixi.feature.py311.dependencies]
-python = "3.11.*"
 
 [tool.pixi.feature.py312.dependencies]
 python = "3.12.*"
