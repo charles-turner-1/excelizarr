@@ -116,17 +116,9 @@ xz.xlsx_to_zarr("big.xlsx", "s3://bucket/big.zarr", chunks=(4096, 64), shards=No
 
 ## Versioning
 
-The root's `attrs["excelizarr"]["format"]` is the format version, currently `2`.
-Readers refuse a store from a newer format rather than misreading it.
-
-| format | change |
-|---|---|
-| 1 | the layout above |
-| 2 | consolidated metadata in the root |
-
-Format-2 readers read format-1 stores as they always were. Format-1 readers refuse
-format-2 stores: they don't know about the root's copy of the metadata, so growing a
-sheet in place would leave it stale.
+The root's `attrs["excelizarr"]["format"]` is the format version, currently `1`.
+Readers refuse a store from a newer format rather than misreading it. Any change an
+older reader would misread bumps it.
 
 ## What isn't stored (yet)
 

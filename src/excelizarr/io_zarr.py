@@ -1,6 +1,6 @@
 """The zarr side: a :class:`~.model.WorkbookModel` as a hierarchy of chunked arrays.
 
-Layout (format 2)::
+Layout (format 1)::
 
     <root>/                   attrs["excelizarr"]: format, sheets [{name, key}],
     │                                              number_formats, defined_names
@@ -17,7 +17,7 @@ Layout (format 2)::
 ``<key>`` is the sheet name, percent-escaped just enough to be a legal zarr node name.
 The real name lives in the root's ``sheets`` list, which is also the tab order.
 
-From format 2, the root also carries zarr's consolidated metadata: every node's
+The root also carries zarr's consolidated metadata: every node's
 metadata, folded into the root's ``zarr.json``. Opening the root then opens everything,
 so a range read on an object store costs its chunks and nothing else. Every node still
 has its own ``zarr.json`` too, so a reader that ignores consolidated metadata (it isn't
@@ -67,9 +67,8 @@ __all__ = [
     "write_sheet",
 ]
 
-#: 2 added consolidated metadata. Format-1 readers must refuse it: their in-place
-#: writes can grow an array without updating the root's copy of its metadata.
-FORMAT_VERSION = 2
+#: Bump for any change an older reader would misread; readers refuse newer formats.
+FORMAT_VERSION = 1
 ATTR = "excelizarr"
 
 #: Chunk requests each zarr array call keeps in flight, at least. zarr's own default
@@ -189,7 +188,7 @@ def _consolidate(store: StoreLike, path: str = "") -> zarr.Group:
 def _reconsolidate(root: zarr.Group) -> zarr.Group:
     """Refresh ``root``'s consolidated metadata after a node's metadata changed.
 
-    A no-op returning ``root`` for stores without it (Icechunk, format 1).
+    A no-op returning ``root`` for stores without it (Icechunk).
     """
     if root.metadata.consolidated_metadata is None:
         return root
@@ -269,7 +268,7 @@ def write_sheet(
     Notes
     -----
     This doesn't touch the root's consolidated metadata, so a sheet added this way to a
-    format-2 workbook is invisible to readers that use it. :func:`write_model` writes
+    workbook is invisible to readers that use it. :func:`write_model` writes
     whole workbooks properly.
     """
     g = _create_sheet(parent, grid, chunks, shards)

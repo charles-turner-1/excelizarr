@@ -67,7 +67,7 @@ def counted(sample_xlsx: Path, tmp_path: Path) -> CountingStore:
 def test_root_is_consolidated(sample_xlsx: Path, tmp_path: Path) -> None:
     """The root carries every node's metadata, and each node still has its own."""
     wb = xz.xlsx_to_zarr(sample_xlsx, tmp_path / "book.zarr")
-    assert wb.root.attrs[ATTR]["format"] == FORMAT_VERSION == 2
+    assert wb.root.attrs[ATTR]["format"] == FORMAT_VERSION
     assert wb.root.metadata.consolidated_metadata is not None
     plain = zarr.open_group(tmp_path / "book.zarr", mode="r", use_consolidated=False)
     assert plain["sheets/Inputs/number"].shape == wb["Inputs"].shape
@@ -153,25 +153,6 @@ def test_growing_a_sheet_keeps_consolidated_metadata_current(
     again = xz.open_workbook(store)
     assert again["Inputs"].shape == want  # and a fresh open
     assert again["Inputs"]["Z99"] == 7
-
-
-def test_format_1_stores_still_read(sample_xlsx: Path) -> None:
-    """A store from before consolidated metadata reads, and writes in place, as ever."""
-    store = zarr.storage.MemoryStore()
-    xz.xlsx_to_zarr(sample_xlsx, store)
-    # what format 1 wrote: the same tree, no consolidated metadata
-    root = zarr.open_group(store, mode="r+", use_consolidated=False)
-    meta = dict(root.attrs[ATTR])
-    meta["format"] = 1
-    root.attrs[ATTR] = meta
-    assert zarr.open_group(store, mode="r").metadata.consolidated_metadata is None
-
-    wb = xz.open_workbook(store, mode="r+")
-    assert wb["Lookup"]["A2"] == "alpha"
-    wb["Lookup"]["C9"] = 1.5
-    assert wb.root.metadata.consolidated_metadata is None  # not added behind its back
-    assert xz.open_workbook(store)["Lookup"]["C9"] == 1.5
-    assert xz.read_excel(store, sheet_name="Lookup")["value"].tolist()[:2] == [1.5, 2.5]
 
 
 def test_every_handle_sees_a_sheet_grow(sample_xlsx: Path) -> None:

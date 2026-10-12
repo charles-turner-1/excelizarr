@@ -1,11 +1,12 @@
 """Lazy, chunk-at-a-time access to a workbook store.
 
 :class:`ZarrWorkbook` opens nothing but the root group, whose consolidated metadata
-(format 2) describes every array, so opening a sheet or an array costs no reads.
+describes every array, so opening a sheet or an array costs no reads.
 Indexing a :class:`ZarrSheet` with a range reads the ``kind`` chunks that range
 overlaps, then the chunks of every value slot those kinds use, all at once. So
-``wb["Inputs!B2:D10"]`` against an ``s3://`` store costs two round trips no matter
-how big the sheet is, or how many slots the range touches.
+``wb["Inputs!B2:D10"]`` against an ``s3://`` store costs the same two steps (each a
+shard index, then the chunks) no matter how big the sheet is, or how many slots the
+range touches.
 """
 
 from __future__ import annotations
