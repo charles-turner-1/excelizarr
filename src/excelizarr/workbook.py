@@ -12,7 +12,6 @@ from __future__ import annotations
 
 import os
 from collections.abc import Iterator
-from functools import partial
 from typing import Any
 
 import numpy as np
@@ -25,7 +24,7 @@ from .io_zarr import (
     ATTR,
     LazySlots,
     OpenArrays,
-    _concurrently,
+    _gather,
     _read_grids,
     _reconsolidate,
     open_root,
@@ -399,7 +398,7 @@ class ZarrSheet:
         need = (max(self.shape[0], rows.stop), max(self.shape[1], cols.stop))
         if need != self.shape:
             arrays = [self._array(slot) for slot in SLOT_DTYPES]
-            _concurrently([partial(a.resize, need) for a in arrays])
+            _gather(a.async_array.resize(need) for a in arrays)
             # the root's consolidated copy of these arrays' metadata is stale now
             self.workbook.root = _reconsolidate(self.workbook.root)
 
@@ -415,11 +414,9 @@ class ZarrSheet:
             enc[Slot.KIND][i, j] = kind
             if kind is not CellKind.EMPTY:
                 enc[KIND_SLOT[kind]][i, j] = stored
-        _concurrently(
-            [
-                partial(self._array(slot).__setitem__, (rows, cols), data)
-                for slot, data in enc.items()
-            ]
+        _gather(
+            self._array(slot).async_array.setitem((rows, cols), data)
+            for slot, data in enc.items()
         )
 
     def to_pandas(self, **kwargs: Any) -> Any:

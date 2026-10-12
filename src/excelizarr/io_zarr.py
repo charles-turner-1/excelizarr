@@ -30,17 +30,16 @@ metadata in memory first, consolidates it there, then writes every node in one g
 before any chunk.
 
 zarr's synchronous API blocks on each call until its event loop has finished the I/O,
-so a loop over the slots pays one round trip per slot. :func:`_concurrently` runs those
-calls from threads instead, so they overlap, and reading or writing all seven slots
-costs about one round trip rather than seven.
+so a loop over the slots pays one round trip per slot. :func:`_gather` hands the slots'
+async calls to zarr's event loop together instead, so they overlap, and reading or
+writing all seven slots costs about one round trip rather than seven.
 """
 
 from __future__ import annotations
 
+import asyncio
 import warnings
-from collections.abc import Callable, Iterable, Iterator, Mapping, Sequence
-from concurrent.futures import ThreadPoolExecutor
-from functools import partial
+from collections.abc import Awaitable, Iterable, Iterator, Mapping, Sequence
 from typing import Any, TypeVar
 from urllib.parse import quote
 
@@ -71,9 +70,6 @@ __all__ = [
 #: writes can grow an array without updating the root's copy of its metadata.
 FORMAT_VERSION = 2
 ATTR = "excelizarr"
-
-#: Most blocking zarr calls :func:`_concurrently` runs at once.
-MAX_CONCURRENCY = 32
 
 #: Rows × columns per chunk. Sheets are long and narrow, and most reads want whole
 #: columns, so chunks are tall. Clipped to the sheet's shape.
@@ -115,12 +111,17 @@ def _shards(
     return one(shape[0], chunks[0], shards[0]), one(shape[1], chunks[1], shards[1])
 
 
-def _concurrently(calls: Sequence[Callable[[], T]]) -> list[T]:
-    """Run blocking zarr calls at the same time, and return their results in order."""
-    if len(calls) <= 1:
-        return [call() for call in calls]
-    with ThreadPoolExecutor(max_workers=min(len(calls), MAX_CONCURRENCY)) as pool:
-        return list(pool.map(lambda call: call(), calls))
+def _gather(coros: Iterable[Awaitable[T]]) -> list[T]:
+    """Run zarr coroutines together on zarr's event loop; their results, in order."""
+    # built out here: making them can call zarr's sync API (opening an array, say),
+    # which can't run on its own loop
+    todo = list(coros)
+
+    async def all_of() -> list[T]:
+        return list(await asyncio.gather(*todo))
+
+    result: list[T] = _sync(all_of())
+    return result
 
 
 def _store_path(
@@ -202,15 +203,15 @@ def _create_sheet(
     return g
 
 
-def _sheet_writes(group: zarr.Group, grid: SheetGrid) -> list[Callable[[], None]]:
+def _sheet_writes(group: zarr.Group, grid: SheetGrid) -> list[Awaitable[None]]:
     """List the chunk writes that fill ``group`` with ``grid``, for slots with data."""
-    writes: list[Callable[[], None]] = []
+    writes: list[Awaitable[None]] = []
     for slot in SLOT_DTYPES:
         data = grid.arrays[slot]
         if data.size and _has_data(slot, data):
             arr = group[slot]
             assert isinstance(arr, zarr.Array)
-            writes.append(partial(arr.__setitem__, Ellipsis, data))
+            writes.append(arr.async_array.setitem(Ellipsis, data))
     return writes
 
 
@@ -246,7 +247,7 @@ def write_sheet(
     whole workbooks properly.
     """
     g = _create_sheet(parent, grid, chunks, shards)
-    _concurrently(_sheet_writes(g, grid))
+    _gather(_sheet_writes(g, grid))
     return g
 
 
@@ -334,7 +335,7 @@ def write_model(
         group = root[f"sheets/{sheet_key(grid.name)}"]
         assert isinstance(group, zarr.Group)
         writes += _sheet_writes(group, grid)
-    _concurrently(writes)
+    _gather(writes)
     return root
 
 
@@ -462,10 +463,9 @@ class LazySlots(Mapping[str, npt.NDArray[Any]]):
         todo = [
             s for s in dict.fromkeys(slots) if s in SLOT_DTYPES and s not in self._cache
         ]
-        for slot, data in zip(
-            todo, _concurrently([partial(self._read, s) for s in todo]), strict=True
-        ):
-            self._cache[slot] = data
+        reads = [self._arrays[s].async_array.getitem(self._sel) for s in todo]
+        for slot, data in zip(todo, _gather(reads), strict=True):
+            self._cache[slot] = np.asarray(data)
 
     def __iter__(self) -> Iterator[str]:
         return iter(SLOT_DTYPES)
@@ -478,11 +478,11 @@ def _read_grids(groups: Sequence[zarr.Group]) -> list[SheetGrid]:
     """Read whole sheets into memory, every slot of every sheet at once."""
     opened = [OpenArrays(g) for g in groups]
     reads = [
-        partial(lambda a, s: np.asarray(a[s][...]), arrays, slot)
+        arrays[slot].async_array.getitem(Ellipsis)
         for arrays in opened
         for slot in SLOT_DTYPES
     ]
-    data = iter(_concurrently(reads))
+    data = iter(np.asarray(d) for d in _gather(reads))
     grids = []
     for group in groups:
         arrays = {slot: next(data) for slot in SLOT_DTYPES}
