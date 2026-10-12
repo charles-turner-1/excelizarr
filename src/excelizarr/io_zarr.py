@@ -38,6 +38,7 @@ writing all seven slots costs about one round trip rather than seven.
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import warnings
 from collections.abc import Awaitable, Iterable, Iterator, Mapping, Sequence
 from typing import Any, TypeVar
@@ -55,6 +56,7 @@ from .model import NumberFormats, SheetGrid, WorkbookModel
 T = TypeVar("T")
 
 __all__ = [
+    "CONCURRENCY",
     "DEFAULT_CHUNKS",
     "FORMAT_VERSION",
     "LazySlots",
@@ -70,6 +72,11 @@ __all__ = [
 #: writes can grow an array without updating the root's copy of its metadata.
 FORMAT_VERSION = 2
 ATTR = "excelizarr"
+
+#: Chunk requests each zarr array call keeps in flight, at least. zarr's own default
+#: (``async.concurrency``, 10) suits local disk; an object store wants many more, or a
+#: sheet of a few hundred chunks reads in a few dozen sequential round trips.
+CONCURRENCY = 64
 
 #: Rows × columns per chunk. Sheets are long and narrow, and most reads want whole
 #: columns, so chunks are tall. Clipped to the sheet's shape.
@@ -120,8 +127,21 @@ def _gather(coros: Iterable[Awaitable[T]]) -> list[T]:
     async def all_of() -> list[T]:
         return list(await asyncio.gather(*todo))
 
-    result: list[T] = _sync(all_of())
+    with _concurrency():
+        result: list[T] = _sync(all_of())
     return result
+
+
+@contextlib.contextmanager
+def _concurrency() -> Iterator[None]:
+    """Raise zarr's ``async.concurrency`` to at least :data:`CONCURRENCY` for a while.
+
+    Only ever raised, so a higher limit someone set themselves still applies. zarr's
+    config is process-wide, so other zarr calls made meanwhile see it too.
+    """
+    limit = max(int(zarr.config.get("async.concurrency")), CONCURRENCY)
+    with zarr.config.set({"async.concurrency": limit}):
+        yield
 
 
 def _store_path(
@@ -443,7 +463,9 @@ class LazySlots(Mapping[str, npt.NDArray[Any]]):
         self._cache: dict[str, npt.NDArray[Any]] = {}
 
     def _read(self, slot: str) -> npt.NDArray[Any]:
-        return np.asarray(self._arrays[slot][self._sel])
+        arr = self._arrays[slot]
+        with _concurrency():
+            return np.asarray(arr[self._sel])
 
     def __getitem__(self, slot: str) -> npt.NDArray[Any]:
         if slot not in self._cache:

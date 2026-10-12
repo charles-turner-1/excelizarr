@@ -10,11 +10,14 @@ import collections
 import zipfile
 from pathlib import Path
 
+import numpy as np
 import pytest
 import zarr
 
 import excelizarr as xz
-from excelizarr.io_zarr import ATTR, FORMAT_VERSION
+from excelizarr.io_zarr import ATTR, CONCURRENCY, FORMAT_VERSION, write_model
+from excelizarr.kinds import CellKind, Slot
+from excelizarr.model import SheetGrid, WorkbookModel
 
 
 class CountingStore(zarr.storage.WrapperStore):  # type: ignore[type-arg]
@@ -175,3 +178,36 @@ def test_every_handle_sees_a_sheet_grow(sample_xlsx: Path) -> None:
     assert early is wb["Inputs"]
     assert early.shape[0] >= 99 and early.shape[1] >= 26
     assert early["Z99"] == 7
+
+
+def _tall(
+    path: Path, rows: int, shards: tuple[int, int] | None
+) -> zarr.storage.LocalStore:
+    """A one-column sheet of ``rows`` numbers: a chunk per 1024 rows.
+
+    On disk, not in memory: zarr reads a ``MemoryStore`` through a synchronous fast
+    path that a :class:`CountingStore` around it never sees.
+    """
+    grid = SheetGrid.empty("Tall", (rows, 1))
+    grid.arrays[Slot.KIND][:] = int(CellKind.FLOAT)
+    grid.arrays[Slot.NUMBER][:, 0] = np.arange(rows)
+    write_model(WorkbookModel([grid]), path, shards=shards)
+    return zarr.storage.LocalStore(path, read_only=True)
+
+
+def test_concurrency_floor(tmp_path: Path) -> None:
+    """A slot read keeps :data:`CONCURRENCY` chunk requests in flight, not zarr's 10,
+    and a higher limit set in zarr's own config is left alone.
+    """
+    counted = CountingStore(_tall(tmp_path, 140 * 1024, shards=None), latency=0.005)
+    sheet = xz.open_workbook(counted)["Tall"]
+    whole = (slice(0, sheet.shape[0]), slice(0, 1))
+
+    counted.reset()
+    sheet.slots(whole)[Slot.NUMBER]
+    assert counted.max_in_flight == CONCURRENCY
+
+    counted.reset()
+    with zarr.config.set({"async.concurrency": 200}):
+        sheet.slots(whole)[Slot.NUMBER]
+    assert counted.max_in_flight == 140  # every chunk at once

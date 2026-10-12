@@ -68,6 +68,19 @@ That's the root's `zarr.json`, plus one chunk each from `kind` and `number`. Col
 `C` holds the strings and is never touched, and nor are the other nineteen row-chunks
 of the sheet.
 
+## Whole sheets
+
+Reading a whole sheet, as `read_excel` and `to_model` do, means reading every chunk of
+every slot it uses. zarr keeps `async.concurrency` chunk requests in flight per array,
+and its default of 10 suits local disk; from an object store, a sheet of a few hundred
+chunks would then take a few dozen round trips one after another. excelizarr raises
+that limit to at least `excelizarr.io_zarr.CONCURRENCY` (64) for its own reads and
+writes. A higher limit set in zarr's config is left alone:
+
+```python
+zarr.config.set({"async.concurrency": 256})   # or ZARR_ASYNC_CONCURRENCY=256
+```
+
 ## A zip of XML becomes a zip of chunks
 
 An `.xlsx` is a zip of XML files. Because zarr can live in a zip as well, so can an
