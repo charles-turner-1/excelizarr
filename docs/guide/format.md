@@ -103,12 +103,16 @@ from excelizarr.io_zarr import sheet_key
 ## Chunking
 
 Chunks default to 1024 rows × 256 columns, clipped to the sheet. Spreadsheets are long
-and narrow, and most reads want whole columns. For big sheets on object storage, pass
-`shards=` to pack many chunks into one object:
+and narrow, and most reads want whole columns. Chunks are packed into shards of 65,536
+rows × 256 columns (64 chunks), also clipped, so each slot of a sheet under 65,536 rows
+is one object. Both are ordinary zarr v3 and any zarr 3 reader decodes them; stores
+written before sharding was the default read the same. To change either:
 
 ```python
-xz.xlsx_to_zarr("big.xlsx", "s3://bucket/big.zarr", chunks=(4096, 64), shards=(65536, 256))
+xz.xlsx_to_zarr("big.xlsx", "s3://bucket/big.zarr", chunks=(4096, 64), shards=None)
 ```
+
+[Stores, local and otherwise](cloud.md) has what shards trade, and S3 timings.
 
 ## Versioning
 

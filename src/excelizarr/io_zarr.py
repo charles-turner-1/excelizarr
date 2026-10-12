@@ -58,6 +58,7 @@ T = TypeVar("T")
 __all__ = [
     "CONCURRENCY",
     "DEFAULT_CHUNKS",
+    "DEFAULT_SHARDS",
     "FORMAT_VERSION",
     "LazySlots",
     "OpenArrays",
@@ -81,6 +82,12 @@ CONCURRENCY = 64
 #: Rows × columns per chunk. Sheets are long and narrow, and most reads want whole
 #: columns, so chunks are tall. Clipped to the sheet's shape.
 DEFAULT_CHUNKS = (1024, 256)
+
+#: Rows × columns per shard: 64 chunks to an object. A whole-sheet read from an object
+#: store is then a request per shard rather than per chunk, while a range read still
+#: decodes only the chunks it needs (after reading the shard's index). Clipped to the
+#: sheet, so a small sheet's slot is a single object. A cell write rewrites its shard.
+DEFAULT_SHARDS = (65536, 256)
 
 
 def sheet_key(name: str) -> str:
@@ -239,7 +246,7 @@ def write_sheet(
     parent: zarr.Group,
     grid: SheetGrid,
     chunks: tuple[int, int] = DEFAULT_CHUNKS,
-    shards: tuple[int, int] | None = None,
+    shards: tuple[int, int] | None = DEFAULT_SHARDS,
 ) -> zarr.Group:
     """Write one sheet as a group of typed arrays under ``parent``.
 
@@ -251,9 +258,10 @@ def write_sheet(
         The sheet to write.
     chunks : tuple of int
         ``(rows, cols)`` per chunk; clipped to the sheet.
-    shards : tuple of int, optional
-        ``(rows, cols)`` per shard, a multiple of ``chunks``. Sharding packs many chunks
-        into one object, which object stores much prefer for big sheets.
+    shards : tuple of int or None
+        ``(rows, cols)`` per shard, rounded to a whole number of chunks and clipped to
+        the sheet. Sharding packs many chunks into one object, which object stores
+        much prefer. ``None`` writes every chunk as its own object.
 
     Returns
     -------
@@ -283,7 +291,7 @@ def write_model(
     store: StoreLike,
     *,
     chunks: tuple[int, int] = DEFAULT_CHUNKS,
-    shards: tuple[int, int] | None = None,
+    shards: tuple[int, int] | None = DEFAULT_SHARDS,
     mode: str = "w-",
     storage_options: dict[str, Any] | None = None,
 ) -> zarr.Group:
@@ -298,8 +306,8 @@ def write_model(
         ``ZipStore``, an Icechunk session's ``store``.
     chunks : tuple of int
         ``(rows, cols)`` per chunk.
-    shards : tuple of int, optional
-        ``(rows, cols)`` per shard; see :func:`write_sheet`.
+    shards : tuple of int or None
+        ``(rows, cols)`` per shard, or ``None`` for none; see :func:`write_sheet`.
     mode : {"w-", "w"}
         ``"w-"`` refuses to overwrite an existing store, ``"w"`` replaces it.
     storage_options : dict, optional

@@ -9,7 +9,7 @@ import zarr
 from zarr.storage import StoreLike
 
 from .io_xlsx import Engine, load_xlsx
-from .io_zarr import DEFAULT_CHUNKS, open_root, write_model
+from .io_zarr import DEFAULT_CHUNKS, DEFAULT_SHARDS, open_root, write_model
 from .workbook import ZarrWorkbook
 
 __all__ = ["open_workbook", "read_excel", "xlsx_to_zarr", "zarr_to_xlsx"]
@@ -21,7 +21,7 @@ def xlsx_to_zarr(
     *,
     engine: Engine = "openpyxl",
     chunks: tuple[int, int] = DEFAULT_CHUNKS,
-    shards: tuple[int, int] | None = None,
+    shards: tuple[int, int] | None = DEFAULT_SHARDS,
     mode: str = "w-",
     storage_options: dict[str, Any] | None = None,
 ) -> ZarrWorkbook:
@@ -39,8 +39,9 @@ def xlsx_to_zarr(
         ``fast`` extra) keeps values only, and is much faster.
     chunks : tuple of int
         ``(rows, cols)`` per chunk.
-    shards : tuple of int, optional
-        ``(rows, cols)`` per shard, for big sheets on object stores.
+    shards : tuple of int or None
+        ``(rows, cols)`` per shard, or ``None`` to write every chunk as its own
+        object.
     mode : str
         ``"w-"`` (default) refuses to overwrite an existing store; ``"w"`` replaces it.
     storage_options : dict, optional

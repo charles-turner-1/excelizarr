@@ -26,7 +26,8 @@ the XML for the sheet you want, even if you only wanted one cell. With a zarr st
 `open_workbook` reads one document, the root's `zarr.json`, which carries every node's
 metadata. A range read then fetches just the chunks the range overlaps, from just the
 slots it uses: `kind` first, to learn which slots that is, then all of those at once.
-However many slots a range touches, that's two round trips to the store.
+Chunks live in shards (see below), so each of those steps reads the shard's small
+index and then the chunk it points to.
 
 ```{code-cell} python
 import openpyxl
@@ -46,9 +47,10 @@ book.save(tmp / "big.xlsx")
 
 
 class CountingStore(zarr.storage.WrapperStore):
-    """Count the objects a read fetches."""
+    """Count the requests a read makes."""
 
     gets = 0
+    get_ranges = zarr.abc.store.Store.get_ranges  # ranged reads go through get() too
 
     async def get(self, key, prototype, byte_range=None):
         type(self).gets += 1
@@ -64,34 +66,46 @@ cells = wb["Big!A15000:B15010"]
 CountingStore.gets, cells.shape
 ```
 
-That's the root's `zarr.json`, plus one chunk each from `kind` and `number`. Column
-`C` holds the strings and is never touched, and nor are the other nineteen row-chunks
-of the sheet.
+That's the root's `zarr.json`, then for each of `kind` and `number` the shard's index
+and one chunk. Column `C` holds the strings and is never touched, and nor are the other
+nineteen row-chunks of the sheet.
 
 ## Whole sheets
 
 Reading a whole sheet, as `read_excel` and `to_model` do, means reading every chunk of
-every slot it uses. zarr keeps `async.concurrency` chunk requests in flight per array,
-and its default of 10 suits local disk; from an object store, a sheet of a few hundred
-chunks would then take a few dozen round trips one after another. excelizarr raises
-that limit to at least `excelizarr.io_zarr.CONCURRENCY` (64) for its own reads and
-writes. A higher limit set in zarr's config is left alone:
+every slot it uses. Two things keep that to a handful of requests:
+
+- **Shards.** By default each slot is packed into objects of 65,536 rows
+  (`excelizarr.io_zarr.DEFAULT_SHARDS`), 64 chunks apiece, so a whole-sheet read is a
+  request per shard rather than per chunk. Pass `shards=None` to write every chunk as
+  its own object, or a different `(rows, cols)` to change the size.
+- **Concurrency.** zarr keeps `async.concurrency` requests in flight per array, 10 by
+  default. excelizarr raises that to at least `excelizarr.io_zarr.CONCURRENCY` (64)
+  for its own reads and writes; a higher limit set in zarr's config is left alone.
+
+On S3, also raise s3fs's connection pool. It's botocore's default of 10, whatever zarr
+asks for, and requests past it wait their turn:
 
 ```python
-zarr.config.set({"async.concurrency": 256})   # or ZARR_ASYNC_CONCURRENCY=256
+xz.read_excel("s3://bucket/big.zarr", storage_options={
+    "config_kwargs": {"max_pool_connections": 64},
+})
 ```
 
-That still leaves one request per chunk. If a workbook is mostly read whole, write it
-with `shards=` and each slot is packed into objects of many chunks, so a whole-sheet
-read is a request or so per shard instead:
+What shards cost: a range read reads each slot's shard index before its chunk, and an
+in-place cell write rewrites the whole shard (a few MB at most) rather than one chunk.
 
-```python
-xz.xlsx_to_zarr("big.xlsx", "s3://bucket/big.zarr", shards=(65536, 256))
-```
+Measured from a laptop in Australia against S3 in `ap-southeast-2`, on a 500,000 × 20
+sheet (40 MB as zarr, best of 3, pool at 64):
 
-It isn't the default because range reads pay for it. Reading a chunk out of a shard
-means reading the shard's index first, so the two round trips above become four. And
-an in-place cell write rewrites the whole shard, rather than one chunk.
+| | sharded (default) | `shards=None` |
+| --- | ---: | ---: |
+| `xz.read_excel`, whole sheet | 2.96 s | 6.07 s |
+| open + 100-cell range read | 0.48 s | 0.43 s |
+
+For scale, the same sheet read locally with `xz.read_excel` takes 2.3 s, and
+downloading its HDF file and reading that takes 2.0 s. The 100-cell range read stays
+about the same at 10,000 rows (0.49 s): it doesn't grow with the sheet.
 
 ## A zip of XML becomes a zip of chunks
 
