@@ -41,7 +41,7 @@ import asyncio
 import contextlib
 import warnings
 from collections.abc import Awaitable, Iterable, Iterator, Mapping, Sequence
-from typing import Any, TypeVar
+from typing import Any
 from urllib.parse import quote
 
 import numpy as np
@@ -52,8 +52,6 @@ from zarr.storage import StoreLike, StorePath
 from .exceptions import FormatVersionError
 from .kinds import FILL, SLOT_DTYPES, Slot
 from .model import NumberFormats, SheetGrid, WorkbookModel
-
-T = TypeVar("T")
 
 __all__ = [
     "CONCURRENCY",
@@ -125,7 +123,7 @@ def _shards(
     return one(shape[0], chunks[0], shards[0]), one(shape[1], chunks[1], shards[1])
 
 
-def _gather(coros: Iterable[Awaitable[T]]) -> list[T]:
+def _gather[T](coros: Iterable[Awaitable[T]]) -> list[T]:
     """Run zarr coroutines together on zarr's event loop; their results, in order."""
     # built out here: making them can call zarr's sync API (opening an array, say),
     # which can't run on its own loop

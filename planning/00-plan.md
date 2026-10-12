@@ -49,15 +49,16 @@ book.zarr/                      group  attrs: excelizarr_format=1, sheet_order, 
 ## Package layout (`~/excelizarr`)
 
 Copied from xrexpr: `pyproject.toml` (setuptools + versioneer instead of maturin; same
-ruff/mypy-strict/numpydoc/pytest config; pixi workspace with `default`, `test-py311..314`
+ruff/mypy-strict/numpydoc/pytest config; pixi workspace with `default`, `test-py312..314`
 and `docs` environments), `.pre-commit-config.yaml`, `.github/workflows/ci.yml`,
 `.readthedocs.yaml`, `.gitignore`, `.gitattributes`, `setup.py`, `versioneer.py` (copied
 from `~/xrexpr/versioneer.py`), `CLAUDE.md` (pixi task table), `README.md`, `planning/`
 (this plan goes there as `planning/00-plan.md`). I'll run `git init` so versioneer has a
 VCS.
 
-- Python floor is 3.11 because zarr 3 needs it.
-- Runtime deps: `zarr>=3.1`, `numpy`, `pandas`, `openpyxl`.
+- Python floor is 3.12, because zarr 3.3 needs it, and 3.3 is what makes a sharded
+  read coalesce its chunk requests (`Store.get_ranges`).
+- Runtime deps: `zarr>=3.3`, `numpy`, `pandas`, `openpyxl`.
 - Extras: `fast = [fastexcel]`, `icechunk = [icechunk]`, `dev`, `docs`. Pixi's test
   feature pulls in both fastexcel and icechunk, and those tests `importorskip`.
 
