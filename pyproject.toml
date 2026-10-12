@@ -31,6 +31,8 @@ dynamic = ["version"]
 fast = ["python-calamine"]
 # Version-controlled spreadsheets. Any zarr store works; this just makes it fun.
 icechunk = ["icechunk"]
+# Object stores without s3fs's HEAD before every GET: pass a zarr.storage.ObjectStore.
+obstore = ["obstore"]
 dev = [
     "black",      # formatting
     "coverage",   # testing
@@ -141,11 +143,11 @@ setuptools = ">=64"
 excelizarr = { editable = true, path = "." }
 
 [tool.pixi.environments]
-default = { features = ["dev", "test", "fast", "icechunk"], solve-group = "default" }
-test-py312 = { features = ["py312", "test", "fast", "icechunk"] }
-test-py313 = { features = ["py313", "test", "fast", "icechunk"] }
-# The bare arm: no fastexcel, no icechunk. Their tests ``importorskip``, and this is the
-# environment that proves excelizarr itself never needs either.
+default = { features = ["dev", "test", "fast", "icechunk", "obstore"], solve-group = "default" }
+test-py312 = { features = ["py312", "test", "fast", "icechunk", "obstore"] }
+test-py313 = { features = ["py313", "test", "fast", "icechunk", "obstore"] }
+# The bare arm: no fastexcel, no icechunk, no obstore. Their tests ``importorskip``, and
+# this is the environment that proves excelizarr itself never needs any of them.
 test-minimal = { features = ["test"] }
 docs = { features = ["docs", "fast"], solve-group = "default" }
 # Only the benchmark script needs these: the HDF comparison is the whole point of it.
@@ -156,6 +158,9 @@ python-calamine = "*"
 
 [tool.pixi.feature.icechunk.dependencies]
 icechunk = "*"
+
+[tool.pixi.feature.obstore.dependencies]
+obstore = "*"
 
 [tool.pixi.feature.test.dependencies]
 pytest = ">=8.4.2"

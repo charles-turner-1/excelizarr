@@ -38,7 +38,8 @@ metadata means opening a workbook is a single read. See
   match.
 - **Round trips.** Formulas, number formats, merged cells, column widths, frozen panes
   and defined names all survive xlsx → zarr → xlsx.
-- **Any zarr store.** Local, `s3://`, in memory, a `ZipStore`, or an Icechunk session.
+- **Any zarr store.** Local, `s3://`, in memory, a `ZipStore`, an Icechunk session, or
+  an obstore-backed `ObjectStore`, which [halves the requests](docs/guide/cloud.md#half-the-requests-with-obstore) on S3.
 - **In-place edits.** `wb["Inputs"]["B2"] = 42` rewrites the one shard that cell is in.
 
 ## Is it fast?

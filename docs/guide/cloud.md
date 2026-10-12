@@ -107,6 +107,42 @@ For scale, the same sheet read locally with `xz.read_excel` takes 2.3 s, and
 downloading its HDF file and reading that takes 2.0 s. The 100-cell range read stays
 about the same at 10,000 rows (0.49 s): it doesn't grow with the sheet.
 
+## Half the requests, with obstore
+
+A URL string goes through fsspec, and s3fs sends a `HEAD` before every `GET` to learn
+the object's size. [obstore](https://developmentseed.org/obstore/) doesn't, so wrapping
+it in zarr's `ObjectStore` halves the requests. On a 20-row workbook in S3, read from
+Australia against `ap-southeast-2`, best of 7:
+
+| | requests | range read | `read_excel` |
+| --- | --- | ---: | ---: |
+| `"s3://..."` (s3fs) | 4 `HEAD` + 4 `GET` | 0.43 s | 0.42 s |
+| `ObjectStore` (obstore) | 4 `GET` | 0.23 s | 0.23 s |
+
+Install the `obstore` extra, and pass the store wherever a URL would go:
+
+```python
+import boto3
+import zarr
+from obstore.auth.boto3 import Boto3CredentialProvider
+from obstore.store import S3Store
+
+s3 = S3Store.from_url(
+    "s3://bucket/model.zarr",
+    region="ap-southeast-2",
+    credential_provider=Boto3CredentialProvider(boto3.Session(profile_name="me")),
+)
+store = zarr.storage.ObjectStore(s3)
+xz.xlsx_to_zarr("model.xlsx", store)
+xz.read_excel(store, sheet_name="Inputs")
+```
+
+obstore reads credentials from environment variables, web identity and instance
+metadata, but not from AWS profiles or SSO. With a profile, hand it boto3's credentials
+as above. Without one, it falls through to instance metadata, which off EC2 takes
+several seconds to fail. That's also why excelizarr doesn't switch URL strings to
+obstore by itself.
+
 ## A zip of XML becomes a zip of chunks
 
 An `.xlsx` is a zip of XML files. Because zarr can live in a zip as well, so can an
